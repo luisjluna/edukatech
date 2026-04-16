@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Sistema Educativo - Registro de Estudiantes (localStorage)</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        button { margin: 5px; padding: 8px 15px; cursor: pointer; }
+        input, select { margin: 5px; padding: 5px; }
+        .card { border: 1px solid #ccc; padding: 15px; margin: 10px 0; border-radius: 8px; }
+    </style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+    let db = null;
+    let appState = { loggedIn: false, role: null };
+
+    function cargarDB() {
+        const stored = localStorage.getItem('sistema_educativo');
+        if (stored) {
+            db = JSON.parse(stored);
+        } else {
+            db = {
+                classCodes: { analisis: "ANA2025", diseno: "DIS2025", implementacion: "IMP2025" },
+                students: { analisis: [{ cedula: "12345678", nombre: "Carlos", apellido: "Perez" }], diseno: [], implementacion: [] },
+                assignments: { analisis: [{ id: "a1", name: "Tarea 1" }], diseno: [], implementacion: [] },
+                studentGrades: { analisis: { "12345678": { "a1": 80 } }, diseno: {}, implementacion: {} },
+                materials: { analisis: [], diseno: [], implementacion: [] },
+                announcements: { analisis: [], diseno: [], implementacion: [] },
+                studentUploads: { analisis: {}, diseno: {}, implementacion: {} }
+            };
+        }
+        guardarDB();
+        renderApp();
+    }
+
+    function guardarDB() {
+        localStorage.setItem('sistema_educativo', JSON.stringify(db));
+        console.log("Guardado en localStorage");
+    }
+
+    function renderApp() {
+        const app = document.getElementById('app');
+        if (!appState.loggedIn) renderLogin(app);
+        else if (appState.role === 'docente') renderDocente(app);
+        else renderEstudiante(app);
+    }
+
+    function renderLogin(container) {
+        container.innerHTML = `
+            <div style="max-width:400px; margin:auto; text-align:center">
+                <h2>Login</h2>
+                <select id="roleSelect">
+                    <option value="docente">Docente</option>
+                    <option value="estudiante">Estudiante</option>
+                </select>
+                <div id="dynamicFields"></div>
+                <button id="loginBtn">Ingresar</button>
+            </div>
+        `;
+        const updateFields = () => {
+            const role = document.getElementById('roleSelect').value;
+            const fieldsDiv = document.getElementById('dynamicFields');
+            if (role === 'docente') {
+                fieldsDiv.innerHTML = `<input type="text" id="user" placeholder="Usuario"><input type="password" id="pass" placeholder="Contraseña">`;
+            } else {
+                fieldsDiv.innerHTML = `
+                    <select id="classSelect"><option value="analisis">Análisis</option><option value="diseno">Diseño</option><option value="implementacion">Implementación</option></select>
+                    <input type="text" id="cedula" placeholder="Cédula">
+                    <input type="text" id="codigo" placeholder="Código de materia">
+                `;
+            }
+        };
+        document.getElementById('roleSelect').addEventListener('change', updateFields);
+        updateFields();
+        document.getElementById('loginBtn').onclick = () => {
+            const role = document.getElementById('roleSelect').value;
+            if (role === 'docente') {
+                const user = document.getElementById('user').value;
+                const pass = document.getElementById('pass').value;
+                if (user === 'admin' && pass === 'admin') {
+                    appState = { loggedIn: true, role: 'docente' };
+                    renderApp();
+                } else alert("Credenciales incorrectas");
+            } else {
+                const classKey = document.getElementById('classSelect').value;
+                const cedula = document.getElementById('cedula').value.trim();
+                const codigo = document.getElementById('codigo').value.trim();
+                if (!cedula || !codigo) return alert("Complete campos");
+                if (db.classCodes[classKey] !== codigo) return alert("Código incorrecto");
+                const estudiante = db.students[classKey].find(s => s.cedula === cedula);
+                if (!estudiante) return alert("Cédula no registrada");
+                appState = { loggedIn: true, role: 'estudiante', studentClass: classKey, studentCedula: cedula, studentName: `${estudiante.nombre} ${estudiante.apellido}` };
+                renderApp();
+            }
+        };
+    }
+
+    function renderDocente(container) {
+        let activeClass = "analisis";
+        function mostrarPanel() {
+            const students = db.students[activeClass] || [];
+            let html = `
+                <div>
+                    <h2>Panel Docente - ${activeClass.toUpperCase()}</h2>
+                    <div>
+                        <button id="btnAnalisis">Análisis</button>
+                        <button id="btnDiseno">Diseño</button>
+                        <button id="btnImplementacion">Implementación</button>
+                    </div>
+                    <div class="card">
+                        <h3>Registrar Estudiante</h3>
+                        <input type="text" id="newCedula" placeholder="Cédula numérica">
+                        <input type="text" id="newNombre" placeholder="Nombre">
+                        <input type="text" id="newApellido" placeholder="Apellido">
+                        <button id="registrarBtn">Registrar</button>
+                    </div>
+                    <div class="card">
+                        <h3>Lista de Estudiantes</h3>
+                        <ul id="listaEstudiantes">
+                            ${students.map(s => `<li>${s.cedula} - ${s.nombre} ${s.apellido} <button class="eliminarBtn" data-cedula="${s.cedula}">Eliminar</button></li>`).join('')}
+                        </ul>
+                    </div>
+                    <button id="logoutBtn">Cerrar sesión</button>
+                </div>
+            `;
+            container.innerHTML = html;
+            document.getElementById('btnAnalisis').onclick = () => { activeClass = "analisis"; mostrarPanel(); };
+            document.getElementById('btnDiseno').onclick = () => { activeClass = "diseno"; mostrarPanel(); };
+            document.getElementById('btnImplementacion').onclick = () => { activeClass = "implementacion"; mostrarPanel(); };
+            document.getElementById('registrarBtn').onclick = () => {
+                const cedula = document.getElementById('newCedula').value.trim();
+                const nombre = document.getElementById('newNombre').value.trim();
+                const apellido = document.getElementById('newApellido').value.trim();
+                if (!cedula || !nombre || !apellido) return alert("Complete todos los campos");
+                if (!/^\d+$/.test(cedula)) return alert("Cédula solo números");
+                if (db.students[activeClass].some(s => s.cedula === cedula)) return alert("Cédula ya existe");
+                db.students[activeClass].push({ cedula, nombre, apellido });
+                if (!db.studentGrades[activeClass]) db.studentGrades[activeClass] = {};
+                db.studentGrades[activeClass][cedula] = {};
+                for (let a of db.assignments[activeClass]) {
+                    db.studentGrades[activeClass][cedula][a.id] = 0;
+                }
+                if (!db.studentUploads[activeClass]) db.studentUploads[activeClass] = {};
+                db.studentUploads[activeClass][cedula] = [];
+                guardarDB();
+                alert("Estudiante registrado");
+                mostrarPanel();
+            };
+            document.querySelectorAll('.eliminarBtn').forEach(btn => {
+                btn.onclick = () => {
+                    const cedula = btn.getAttribute('data-cedula');
+                    if (confirm(`Eliminar a ${cedula}?`)) {
+                        db.students[activeClass] = db.students[activeClass].filter(s => s.cedula !== cedula);
+                        delete db.studentGrades[activeClass][cedula];
+                        delete db.studentUploads[activeClass][cedula];
+                        guardarDB();
+                        mostrarPanel();
+                    }
+                };
+            });
+            document.getElementById('logoutBtn').onclick = () => { appState.loggedIn = false; renderApp(); };
+        }
+        mostrarPanel();
+    }
+
+    function renderEstudiante(container) {
+        container.innerHTML = `<div><h2>Estudiante: ${appState.studentName}</h2><button id="logoutBtn">Salir</button></div>`;
+        document.getElementById('logoutBtn').onclick = () => { appState.loggedIn = false; renderApp(); };
+    }
+
+    cargarDB();
+</script>
+</body>
+</html>
