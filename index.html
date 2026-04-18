@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Sistema Educativo | Gestión Completa con Supabase</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+
+    <style>
+        /* ESTILOS ORIGINALES */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: #eef2f8; color: #1e2a3e; padding: 1.5rem; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; }
+
+        /* LOGIN */
+        .login-overlay { display: flex; justify-content: center; align-items: center; min-height: 80vh; }
+        .login-card { background: white; border-radius: 2rem; padding: 2.5rem; width: 100%; max-width: 420px; box-shadow: 0 20px 35px rgba(0,0,0,0.1); text-align: center; }
+        .login-card input, .login-card select { width: 100%; padding: 12px 16px; margin: 8px 0; border-radius: 60px; border: 1px solid #cbdde9; outline: none; }
+        .login-card button { width: 100%; background: #2c6e9e; color: white; border: none; padding: 12px; border-radius: 60px; font-weight: bold; margin-top: 1rem; cursor: pointer; transition: 0.3s; }
+        .login-card button:hover { background: #1e4a76; }
+
+        /* DASHBOARD */
+        .dashboard-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 2rem; background: white; padding: 1rem 1.8rem; border-radius: 60px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+        .tabs { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.8rem; }
+        .tab-btn { background: white; border: none; padding: 0.7rem 1.6rem; border-radius: 40px; font-weight: 600; cursor: pointer; transition: 0.3s; color: #5a7184; }
+        .tab-btn.active { background: #2c6e9e; color: white; box-shadow: 0 4px 12px rgba(44,110,158,0.3); }
+
+        /* PANELES */
+        .class-panel { display: none; background: white; border-radius: 28px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 8px 20px rgba(0,0,0,0.05); }
+        .class-panel.active-panel { display: block; animation: fadeIn 0.4s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .section-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 1.2rem; border-left: 5px solid #2c6e9e; padding-left: 1rem; color: #1e4a76; display: flex; justify-content: space-between; align-items: center; }
+        .grid-modules { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; }
+        .card-module { background: #f9fbfd; border-radius: 24px; padding: 1.5rem; border: 1px solid #e2edf5; }
+
+        /* TABLAS */
+        .table-container { overflow-x: auto; margin-top: 1rem; border-radius: 15px; border: 1px solid #e2edf5; }
+        table { width: 100%; border-collapse: collapse; background: white; min-width: 600px; }
+        th, td { padding: 12px; text-align: center; border-bottom: 1px solid #eef2f8; font-size: 0.9rem; }
+        th { background: #f1f5f9; font-weight: 600; color: #475569; }
+        input.grade-input { width: 55px; padding: 6px; border-radius: 10px; border: 1px solid #cbdde9; text-align: center; }
+
+        /* COMPONENTES */
+        .item-list { background: white; padding: 10px 15px; border-radius: 15px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #f1f5f9; }
+        .btn-action { background: #eef2fa; border: none; padding: 8px 15px; border-radius: 30px; cursor: pointer; font-size: 0.85rem; transition: 0.2s; }
+        .btn-action:hover { background: #dce5ec; }
+        .btn-danger { color: #dc3545; }
+        .btn-primary { background: #2c6e9e; color: white; border-radius: 30px; padding: 10px 20px; border: none; cursor: pointer; }
+
+        /* TOAST Y LOADING */
+        .toast-msg { position: fixed; bottom: 20px; right: 20px; background: #1e2a3e; color: white; padding: 12px 25px; border-radius: 50px; z-index: 3000; opacity: 0; transition: 0.3s; pointer-events: none; }
+        .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.85); display: none; justify-content: center; align-items: center; z-index: 4000; flex-direction: column; gap: 1rem; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #2c6e9e; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <div id="loadingText">Sincronizando con Supabase...</div>
+</div>
+<div id="app"></div>
+<div id="toastMsg" class="toast-msg"></div>
+
+<script>
+    // 1. CONFIGURACIÓN SUPABASE (RELLENA ESTO)
+    const SUPABASE_URL = 'https://hofxrumwrvxylxikkcqf.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvZnhydW13cnZ4eWx4aWtrY3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NDQzNjAsImV4cCI6MjA5MjEyMDM2MH0.x1ep51ooqiBpw30H7ixpcM_UpphIeAszCZZRxzaCS-A';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // ---------- CONSTANTES ----------
+    const CLASS_KEYS = ['analisis', 'diseno', 'implementacion'];
+    const CLASS_NAMES = {
+        analisis: '📊 Análisis de Sistemas',
+        diseno: '🎨 Diseño de Sistemas',
+        implementacion: '⚙️ Implementación de Sistemas'
+    };
+
+    let appState = { loggedIn: false, role: null, studentClass: null, studentName: null, studentCedula: null };
+    let db = {};
+
+    // 2. PERSISTENCIA NUBE
+    async function loadDatabase() {
+        showLoading(true);
+        try {
+            const { data, error } = await supabaseClient.from('app_data').select('content').eq('id', 1).single();
+            if (error || !data || Object.keys(data.content).length === 0) {
+                initDefaultDB();
+                await saveDatabase();
+            } else {
+                db = data.content;
+            }
+        } catch (e) { console.error(e); }
+        showLoading(false);
+        renderApp();
+    }
+
+    async function saveDatabase() {
+        showLoading(true, "Guardando cambios...");
+        const { error } = await supabaseClient.from('app_data').update({ content: db, updated_at: new Date() }).eq('id', 1);
+        if (error) showToast("❌ Error al guardar");
+        else showToast("✅ Sincronizado");
+        showLoading(false);
+    }
+
+    function initDefaultDB() {
+        db = { classCodes: {}, assignments: {}, studentGrades: {}, materials: {}, announcements: {}, students: {}, studentUploads: {} };
+        CLASS_KEYS.forEach(key => {
+            db.classCodes[key] = key.toUpperCase() + '2025';
+            db.assignments[key] = [{ id: Date.now(), name: 'Tarea 1' }];
+            db.materials[key] = [];
+            db.announcements[key] = [];
+            db.students[key] = [];
+            db.studentGrades[key] = {};
+            db.studentUploads[key] = {};
+        });
+    }
+
+    // 3. NAVEGACIÓN Y LOGIN
+    function renderApp() {
+        const app = document.getElementById('app');
+        if (!appState.loggedIn) renderLogin(app);
+        else if (appState.role === 'docente') renderDocente(app);
+        else renderEstudiante(app);
+    }
+
+    function renderLogin(container) {
+        container.innerHTML = `
+            <div class="login-overlay">
+                <div class="login-card">
+                    <i class="fas fa-university" style="font-size: 3rem; color:#2c6e9e; margin-bottom:1rem;"></i>
+                    <h2>Aula Virtual</h2>
+                    <select id="roleSelect">
+                        <option value="docente">Panel Docente</option>
+                        <option value="estudiante">Portal Estudiante</option>
+                    </select>
+                    <div id="loginFields"></div>
+                    <button id="loginBtn">Ingresar al Sistema</button>
+                </div>
+            </div>
+        `;
+        const role = document.getElementById('roleSelect');
+        const fields = document.getElementById('loginFields');
+        const update = () => {
+            fields.innerHTML = role.value === 'docente' ?
+                `<input type="text" id="user" placeholder="Usuario"><input type="password" id="pass" placeholder="Clave">` :
+                `<select id="classSel">${CLASS_KEYS.map(k => `<option value="${k}">${CLASS_NAMES[k]}</option>`).join('')}</select>
+                 <input type="text" id="ced" placeholder="Cédula">
+                 <input type="text" id="cod" placeholder="Código de Acceso">`;
+        };
+        role.onchange = update; update();
+
+        document.getElementById('loginBtn').onclick = () => {
+            if (role.value === 'docente') {
+                if (document.getElementById('user').value === 'admin' && document.getElementById('pass').value === 'admin') {
+                    appState = { loggedIn: true, role: 'docente' }; renderApp();
+                } else showToast("Error de acceso");
+            } else {
+                const ckey = document.getElementById('classSel').value;
+                const ced = document.getElementById('ced').value;
+                const cod = document.getElementById('cod').value;
+                const s = db.students[ckey].find(x => x.cedula === ced);
+                if (s && cod === db.classCodes[ckey]) {
+                    appState = { loggedIn: true, role: 'estudiante', studentClass: ckey, studentName: s.nombre, studentCedula: ced };
+                    renderApp();
+                } else showToast("Datos no válidos");
+            }
+        };
+    }
+
+    // 4. PANEL DOCENTE (GESTIÓN TOTAL)
+    function renderDocente(container) {
+        container.innerHTML = `
+            <div class="container">
+                <div class="dashboard-header">
+                    <div><strong>Docente:</strong> Principal</div>
+                    <button class="btn-action" onclick="location.reload()">Cerrar Sesión</button>
+                </div>
+                <div class="tabs" id="mainTabs"></div>
+                <div id="classContent"></div>
+            </div>
+        `;
+        const tabs = document.getElementById('mainTabs');
+        CLASS_KEYS.forEach(key => {
+            const b = document.createElement('button');
+            b.className = 'tab-btn'; b.innerText = CLASS_NAMES[key];
+            b.onclick = () => {
+                document.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
+                b.classList.add('active'); renderClassDetail(key);
+            };
+            tabs.appendChild(b);
+        });
+        tabs.firstChild.click();
+    }
+
+    function renderClassDetail(key) {
+        const div = document.getElementById('classContent');
+        div.innerHTML = `
+            <div class="class-panel active-panel">
+                <div class="section-title">Gestión de Curso: ${db.classCodes[key]}
+                    <button class="btn-action" onclick="changeCode('${key}')">🔑 Cambiar Código</button>
+                </div>
+
+                <div class="grid-modules">
+                    <div class="card-module">
+                        <h3>👥 Estudiantes y Calificaciones</h3>
+                        <div class="table-container">
+                            <table>
+                                <thead><tr><th>Cédula</th><th>Nombre</th>${db.assignments[key].map(a => `<th>${a.name}</th>`).join('')}<th>Acción</th></tr></thead>
+                                <tbody>
+                                    ${db.students[key].map(s => `
+                                        <tr>
+                                            <td>${s.cedula}</td>
+                                            <td>${s.nombre}</td>
+                                            ${db.assignments[key].map(a => `
+                                                <td><input type="number" class="grade-input" value="${db.studentGrades[key][s.cedula]?.[a.id] || ''}"
+                                                    onchange="updateGrade('${key}','${s.cedula}','${a.id}', this.value)"></td>
+                                            `).join('')}
+                                            <td><button class="btn-action btn-danger" onclick="delStudent('${key}','${s.cedula}')">X</button></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <button class="btn-primary" style="margin-top:1rem" onclick="addStudentPrompt('${key}')">+ Nuevo Estudiante</button>
+                        <button class="btn-action" onclick="addAssignmentPrompt('${key}')">📝 Agregar Tarea</button>
+                    </div>
+
+                    <div class="card-module">
+                        <h3>📢 Anuncios y Materiales</h3>
+                        <div id="listItems">
+                            ${db.announcements[key].map((a,idx) => `<div class="item-list"><span>${a}</span><button onclick="delAnnounce('${key}',${idx})">X</button></div>`).join('')}
+                        </div>
+                        <input type="text" id="newAnn" placeholder="Nuevo anuncio...">
+                        <button class="btn-action" onclick="addAnnounce('${key}')">Publicar</button>
+                        <hr style="margin:1rem 0; opacity:0.2">
+                        <h3>📁 Entregas de Estudiantes</h3>
+                        ${Object.keys(db.studentUploads[key] || {}).map(ced => `
+                            <div class="item-list">
+                                <span>${ced}: ${db.studentUploads[key][ced].filename}</span>
+                                <button class="btn-action" onclick="downloadFile('${key}','${ced}')">⬇️</button>
+                            </div>
+                        `).length ? Object.keys(db.studentUploads[key]).map(ced => `...`) : '<p>No hay entregas</p>'}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // 5. PANEL ESTUDIANTE (VISTA)
+    function renderEstudiante(container) {
+        const ckey = appState.studentClass;
+        const ced = appState.studentCedula;
+        container.innerHTML = `
+            <div class="container">
+                <div class="dashboard-header">
+                    <div><strong>Estudiante:</strong> ${appState.studentName}</div>
+                    <button class="btn-action" onclick="location.reload()">Salir</button>
+                </div>
+                <div class="class-panel active-panel">
+                    <div class="section-title">Materia: ${CLASS_NAMES[ckey]}</div>
+                    <div class="grid-modules">
+                        <div class="card-module">
+                            <h3>📝 Mis Calificaciones</h3>
+                            <div class="table-container">
+                                <table>
+                                    <thead><tr><th>Evaluación</th><th>Nota</th></tr></thead>
+                                    <tbody>
+                                        ${db.assignments[ckey].map(a => `
+                                            <tr><td>${a.name}</td><td><strong>${db.studentGrades[ckey][ced]?.[a.id] || 'Pnd.'}</strong></td></tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="card-module">
+                            <h3>📤 Entregar Tarea</h3>
+                            <input type="file" id="fileUp">
+                            <button class="btn-primary" onclick="uploadTask('${ckey}','${ced}')" style="width:100%; margin-top:10px;">Subir Archivo</button>
+                            <hr style="margin:1.5rem 0; opacity:0.1">
+                            <h3>📢 Anuncios</h3>
+                            ${db.announcements[ckey].map(a => `<div class="item-list">${a}</div>`).join('') || 'Sin anuncios.'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // 6. FUNCIONES DE LÓGICA (CALIFICACIONES, ESTUDIANTES, ETC.)
+    async function updateGrade(ckey, ced, aid, val) {
+        if (!db.studentGrades[ckey][ced]) db.studentGrades[ckey][ced] = {};
+        db.studentGrades[ckey][ced][aid] = val;
+        await saveDatabase();
+    }
+
+    async function addStudentPrompt(ckey) {
+        const n = prompt("Nombre:");
+        const c = prompt("Cédula:");
+        if (n && c) {
+            db.students[ckey].push({ nombre: n, cedula: c });
+            db.studentGrades[ckey][c] = {};
+            await saveDatabase();
+            renderClassDetail(ckey);
+        }
+    }
+
+    async function addAssignmentPrompt(ckey) {
+        const n = prompt("Nombre de la evaluación:");
+        if (n) {
+            db.assignments[ckey].push({ id: Date.now(), name: n });
+            await saveDatabase();
+            renderClassDetail(ckey);
+        }
+    }
+
+    async function addAnnounce(ckey) {
+        const val = document.getElementById('newAnn').value;
+        if (val) {
+            db.announcements[ckey].push(val);
+            await saveDatabase();
+            renderClassDetail(ckey);
+        }
+    }
+
+    async function uploadTask(ckey, ced) {
+        const file = document.getElementById('fileUp').files[0];
+        if (!file) return showToast("Selecciona un archivo");
+
+        showLoading(true, "Codificando y subiendo...");
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            db.studentUploads[ckey][ced] = {
+                filename: file.name,
+                content: e.target.result, // Base64
+                date: new Date().toLocaleString()
+            };
+            await saveDatabase();
+            showToast("✅ Tarea entregada");
+            showLoading(false);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // UTILIDADES VISUALES
+    function showToast(m) { const t=document.getElementById('toastMsg'); t.innerText=m; t.style.opacity=1; setTimeout(()=>t.style.opacity=0, 3000); }
+    function showLoading(s, txt="Procesando...") {
+        document.getElementById('loadingText').innerText = txt;
+        document.getElementById('loadingOverlay').style.display = s ? 'flex' : 'none';
+    }
+
+    // INICIO
+    loadDatabase();
+</script>
+</body>
+</html>
