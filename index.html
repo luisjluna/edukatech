@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Educativo | Gestión 200+ Estudiantes</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --primary: #2c6e9e; --danger: #dc3545; --bg: #eef2f8; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card { background: white; padding: 2rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+
+        /* Login */
+        .login-container { display: flex; justify-content: center; align-items: center; min-height: 80vh; }
+        .login-box { width: 100%; max-width: 400px; text-align: center; }
+        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
+
+        /* Tablas */
+        .table-wrapper { overflow-x: auto; margin-top: 20px; max-height: 400px; border: 1px solid #eee; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+        th { background: #f8fafc; position: sticky; top: 0; }
+
+        /* Botones */
+        .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-sm { padding: 5px 10px; font-size: 0.75rem; }
+
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        #loading { position: fixed; top: 10px; right: 10px; background: orange; padding: 5px 10px; border-radius: 5px; display: none; }
+    </style>
+</head>
+<body>
+
+<div id="loading">Sincronizando...</div>
+<div id="app" class="container">
+    <div style="text-align:center; margin-top:50px;">Cargando sistema... si la pantalla sigue en blanco, verifica la consola (F12).</div>
+</div>
+
+<script>
+    // 1. CONFIGURACIÓN (REEMPLAZA ESTO)
+    const SUPABASE_URL = 'https://hofxrumwrvxylxikkcqf.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvZnhydW13cnZ4eWx4aWtrY3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NDQzNjAsImV4cCI6MjA5MjEyMDM2MH0.x1ep51ooqiBpw30H7ixpcM_UpphIeAszCZZRxzaCS-A'; // <--- Pon tu clave aquí
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let db = null;
+    let session = { role: null, user: null, class: null };
+
+    // 2. ESTRUCTURA INICIAL (Si la DB está vacía)
+    function getInitialDB() {
+        return {
+            adminAuth: { user: 'admin', pass: 'admin123' },
+            classCodes: { analisis: 'ANA2025', diseno: 'DIS2025', implementacion: 'IMP2025' },
+            students: { analisis: [], diseno: [], implementacion: [] },
+            assignments: { analisis: [], diseno: [], implementacion: [] },
+            studentUploads: { analisis: {}, diseno: {}, implementacion: {} }
+        };
+    }
+
+    // 3. CARGA DE DATOS CON AUTO-REPARACIÓN
+    async function loadData() {
+        try {
+            const { data, error } = await _supabase.from('app_data').select('content').eq('id', 1).single();
+
+            if (error || !data) {
+                console.log("Base de datos vacía o error. Inicializando...");
+                db = getInitialDB();
+                await _supabase.from('app_data').insert([{ id: 1, content: db }]);
+            } else {
+                db = data.content;
+            }
+            renderLogin();
+        } catch (err) {
+            document.getElementById('app').innerHTML = `<div class="card">Error de conexión: ${err.message}</div>`;
+        }
+    }
+
+    async function sync() {
+        document.getElementById('loading').style.display = 'block';
+        const { error } = await _supabase.from('app_data').update({ content: db }).eq('id', 1);
+        if (error) alert("Error al guardar: " + error.message);
+        document.getElementById('loading').style.display = 'none';
+    }
+
+    // 4. VISTAS
+    function renderLogin() {
+        document.getElementById('app').innerHTML = `
+            <div class="login-container">
+                <div class="card login-box">
+                    <h2>Aula Virtual</h2>
+                    <select id="roleLogin" onchange="toggleFields()">
+                        <option value="admin">Administrador / Docente</option>
+                        <option value="student">Estudiante</option>
+                    </select>
+                    <div id="fields">
+                        <input type="text" id="userInput" placeholder="Usuario">
+                        <input type="password" id="passInput" placeholder="Contraseña">
+                    </div>
+                    <button class="btn btn-primary" style="width:100%" onclick="handleLogin()">Entrar</button>
+                </div>
+            </div>`;
+    }
+
+    function toggleFields() {
+        const role = document.getElementById('roleLogin').value;
+        const div = document.getElementById('fields');
+        if (role === 'admin') {
+            div.innerHTML = `<input type="text" id="userInput" placeholder="Usuario"><input type="password" id="passInput" placeholder="Contraseña">`;
+        } else {
+            div.innerHTML = `
+                <select id="classSel">${Object.keys(db.classCodes).map(k => `<option value="${k}">${k.toUpperCase()}</option>`).join('')}</select>
+                <input type="text" id="cedInput" placeholder="Cédula">
+                <input type="password" id="codeInput" placeholder="Código de Clase">`;
+        }
+    }
+
+    function handleLogin() {
+        const role = document.getElementById('roleLogin').value;
+        if (role === 'admin') {
+            const u = document.getElementById('userInput').value;
+            const p = document.getElementById('passInput').value;
+            if (u === db.adminAuth.user && p === db.adminAuth.pass) {
+                session.role = 'admin'; renderAdmin();
+            } else alert("Credenciales de administrador incorrectas");
+        } else {
+            const c = document.getElementById('classSel').value;
+            const ced = document.getElementById('cedInput').value;
+            const cod = document.getElementById('codeInput').value;
+            const student = db.students[c].find(s => s.cedula === ced);
+            if (student && cod === db.classCodes[c]) {
+                session = { role: 'student', user: student, class: c };
+                renderStudent();
+            } else alert("Datos de estudiante incorrectos");
+        }
+    }
+
+    // 5. PANEL ADMIN
+    function renderAdmin() {
+        document.getElementById('app').innerHTML = `
+            <div class="header">
+                <h1>Panel de Control</h1>
+                <div>
+                    <button class="btn btn-sm" onclick="changePass()">Cambiar Clave</button>
+                    <button class="btn btn-danger btn-sm" onclick="location.reload()">Salir</button>
+                </div>
+            </div>
+            <div class="grid">
+                <div class="card">
+                    <h3>Estudiantes</h3>
+                    <select id="admClass" onchange="refreshAdminTables()">
+                        ${Object.keys(db.students).map(k => `<option value="${k}">${k.toUpperCase()}</option>`).join('')}
+                    </select>
+                    <div class="table-wrapper"><table id="tEst"></table></div>
+                    <button class="btn btn-primary btn-sm" onclick="addStudent()">+ Agregar</button>
+                </div>
+                <div class="card">
+                    <h3>Tareas</h3>
+                    <div class="table-wrapper"><table id="tTar"></table></div>
+                    <button class="btn btn-primary btn-sm" onclick="addTask()">+ Nueva Tarea</button>
+                </div>
+            </div>
+            <div class="card" style="margin-top:20px;">
+                <h3>Entregas Recibidas</h3>
+                <div class="table-wrapper"><table id="tEnt"></table></div>
+            </div>`;
+        refreshAdminTables();
+    }
+
+    function refreshAdminTables() {
+        const c = document.getElementById('admClass').value;
+
+        // Estudiantes
+        document.getElementById('tEst').innerHTML = `<thead><tr><th>Cédula</th><th>Nombre</th><th>Acción</th></tr></thead>
+            <tbody>${db.students[c].map(s => `<tr><td>${s.cedula}</td><td>${s.nombre} ${s.apellido}</td>
+            <td><button class="btn btn-danger btn-sm" onclick="delEst('${c}','${s.cedula}')">X</button></td></tr>`).join('')}</tbody>`;
+
+        // Tareas
+        document.getElementById('tTar').innerHTML = `<thead><tr><th>Tarea</th><th>Acción</th></tr></thead>
+            <tbody>${db.assignments[c].map(a => `<tr><td>${a.name}</td>
+            <td><button class="btn btn-primary btn-sm" onclick="editTask('${c}',${a.id})">✎</button>
+            <button class="btn btn-danger btn-sm" onclick="delTask('${c}',${a.id})">X</button></td></tr>`).join('')}</tbody>`;
+
+        // Entregas
+        let entHtml = `<thead><tr><th>Estudiante</th><th>Materia</th><th>Archivo</th><th>Fecha</th></tr></thead><tbody>`;
+        Object.keys(db.studentUploads).forEach(cls => {
+            Object.keys(db.studentUploads[cls]).forEach(ced => {
+                db.studentUploads[cls][ced].forEach(u => {
+                    entHtml += `<tr><td>${ced}</td><td>${cls}</td><td><a href="${u.content}" download="${u.filename}">${u.filename}</a></td><td>${u.date}</td></tr>`;
+                });
+            });
+        });
+        document.getElementById('tEnt').innerHTML = entHtml + `</tbody>`;
+    }
+
+    // FUNCIONES ADMIN
+    async function changePass() {
+        const p = prompt("Nueva clave admin:");
+        if(p) { db.adminAuth.pass = p; await sync(); }
+    }
+    async function addStudent() {
+        const c = document.getElementById('admClass').value;
+        const ced = prompt("Cédula:");
+        const nom = prompt("Nombre:");
+        const ape = prompt("Apellido:");
+        if(ced && nom) { db.students[c].push({cedula:ced, nombre:nom, apellido:ape}); await sync(); refreshAdminTables(); }
+    }
+    async function delEst(c, ced) { if(confirm("¿Eliminar?")) { db.students[c] = db.students[c].filter(s => s.cedula !== ced); await sync(); refreshAdminTables(); } }
+    async function addTask() {
+        const c = document.getElementById('admClass').value;
+        const n = prompt("Tarea:");
+        if(n) { db.assignments[c].push({id:Date.now(), name:n}); await sync(); refreshAdminTables(); }
+    }
+    async function editTask(c, id) {
+        const t = db.assignments[c].find(x => x.id === id);
+        const n = prompt("Nuevo nombre:", t.name);
+        if(n) { t.name = n; await sync(); refreshAdminTables(); }
+    }
+    async function delTask(c, id) { if(confirm("¿Eliminar?")) { db.assignments[c] = db.assignments[c].filter(x => x.id !== id); await sync(); refreshAdminTables(); } }
+
+    // 6. PANEL ESTUDIANTE
+    function renderStudent() {
+        const s = session.user;
+        const c = session.class;
+        document.getElementById('app').innerHTML = `
+            <div class="header">
+                <h2>Hola, ${s.nombre}</h2>
+                <button class="btn btn-danger btn-sm" onclick="location.reload()">Salir</button>
+            </div>
+            <div class="grid">
+                <div class="card">
+                    <h3>Subir Tarea</h3>
+                    <select id="taskPick">${db.assignments[c].map(a => `<option value="${a.name}">${a.name}</option>`).join('')}</select>
+                    <input type="file" id="fileUp">
+                    <button class="btn btn-primary" style="width:100%" onclick="doUpload()">Enviar</button>
+                </div>
+                <div class="card">
+                    <h3>Mis Entregas</h3>
+                    <div class="table-wrapper"><table><thead><tr><th>Archivo</th><th>Fecha</th></tr></thead>
+                    <tbody>${(db.studentUploads[c][s.cedula] || []).map(u => `<tr><td>${u.filename}</td><td>${u.date}</td></tr>`).join('')}</tbody>
+                    </table></div>
+                </div>
+            </div>`;
+    }
+
+    async function doUpload() {
+        const f = document.getElementById('fileUp').files[0];
+        const t = document.getElementById('taskPick').value;
+        if(!f) return alert("Selecciona archivo");
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            if(!db.studentUploads[session.class][session.user.cedula]) db.studentUploads[session.class][session.user.cedula] = [];
+            db.studentUploads[session.class][session.user.cedula].push({
+                taskName: t, filename: f.name, content: e.target.result, date: new Date().toLocaleString()
+            });
+            await sync(); alert("Enviado"); renderStudent();
+        };
+        reader.readAsDataURL(f);
+    }
+
+    // INICIAR
+    loadData();
+</script>
+</body>
+</html>
