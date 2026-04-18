@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Académico Maracay | 200+ Alumnos</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        :root { --primary: #1e40af; --bg: #f8fafc; --white: #ffffff; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .card { background: var(--white); padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 20px; }
+
+        /* Tablas */
+        .table-wrap { overflow: auto; max-height: 60vh; border: 1px solid #e2e8f0; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th { background: #1e293b; color: white; padding: 12px; position: sticky; top: 0; }
+        td { border: 1px solid #e2e8f0; padding: 8px; text-align: center; }
+
+        /* Buscador y UI */
+        .search-bar { width: 100%; padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box; }
+        .btn { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: #059669; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+
+        #sync-pill { position: fixed; top: 20px; right: 20px; padding: 10px 20px; border-radius: 50px; display: none; z-index: 1000; font-weight: bold; }
+        .announcement { background: #fffbeb; border-left: 4px solid #d97706; padding: 10px; margin-top: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div id="sync-pill"></div>
+<div id="app" class="container">Cargando sistema...</div>
+
+<script>
+    // --- CONFIGURACIÓN ---
+    const SUPABASE_URL = 'https://hofxrumwrvxylxikkcqf.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvZnhydW13cnZ4eWx4aWtrY3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NDQzNjAsImV4cCI6MjA5MjEyMDM2MH0.x1ep51ooqiBpw30H7ixpcM_UpphIeAszCZZRxzaCS-A'; // <--- ¡DEBES PONER TU LLAVE AQUÍ!
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let db = null;
+    let session = { role: null, user: null, class: null, filter: "" };
+
+    // --- CARGA INICIAL ---
+    async function init() {
+        try {
+            const { data, error } = await _supabase.from('app_data').select('content').eq('id', 1).single();
+            if (error || !data) {
+                db = {
+                    adminAuth: { user: 'admin', pass: 'admin123' },
+                    classCodes: { analisis: 'ANA2025', diseno: 'DIS2025', implementacion: 'IMP2025' },
+                    students: { analisis: [], diseno: [], implementacion: [] },
+                    assignments: { analisis: [], diseno: [], implementacion: [] },
+                    grades: { analisis: {}, diseno: {}, implementacion: {} },
+                    studentUploads: { analisis: {}, diseno: {}, implementacion: {} },
+                    announcements: { analisis: [], diseno: [], implementacion: [] }
+                };
+                await _supabase.from('app_data').insert([{ id: 1, content: db }]);
+            } else {
+                db = data.content;
+            }
+            renderLogin();
+        } catch (e) {
+            document.getElementById('app').innerHTML = "Error de conexión con Supabase. Verifica la API KEY.";
+        }
+    }
+
+    async function sync() {
+        const pill = document.getElementById('sync-pill');
+        pill.style.display = 'block'; pill.style.background = '#fef3c7'; pill.innerText = '⏳ Sincronizando...';
+
+        const { error } = await _supabase.from('app_data').update({ content: db }).eq('id', 1);
+
+        if(!error) {
+            pill.style.background = '#d1fae5'; pill.innerText = '✅ Guardado';
+            setTimeout(() => pill.style.display = 'none', 2000);
+        } else {
+            pill.style.background = '#fee2e2'; pill.innerText = '❌ Error al guardar';
+        }
+    }
+
+    // --- VISTAS ---
+    function renderLogin() {
+        document.getElementById('app').innerHTML = `
+            <div style="max-width:400px; margin: 80px auto" class="card">
+                <h2 style="text-align:center">Aula Virtual Maracay</h2>
+                <select id="role" onchange="toggleL()" style="width:100%; padding:10px; margin-bottom:10px;">
+                    <option value="student">Estudiante</option>
+                    <option value="admin">Docente</option>
+                </select>
+                <div id="lFields"></div>
+                <button class="btn btn-primary" style="width:100%; margin-top:15px;" onclick="login()">Entrar</button>
+            </div>`;
+        toggleL();
+    }
+
+    function toggleL() {
+        const r = document.getElementById('role').value;
+        const f = document.getElementById('lFields');
+        f.innerHTML = r === 'admin' ?
+            `<input type="text" id="u" placeholder="Usuario" style="width:100%; padding:10px; margin-top:5px">
+             <input type="password" id="p" placeholder="Contraseña" style="width:100%; padding:10px; margin-top:10px">` :
+            `<select id="c" style="width:100%; padding:10px;">
+                ${Object.keys(db.classCodes).map(k => `<option value="${k}">${k.toUpperCase()}</option>`).join('')}
+             </select>
+             <input type="text" id="ced" placeholder="Cédula" style="width:100%; padding:10px; margin-top:10px">
+             <input type="text" id="cod" placeholder="Código de Clase" style="width:100%; padding:10px; margin-top:10px">`;
+    }
+
+    function login() {
+        const r = document.getElementById('role').value;
+        if(r === 'admin') {
+            if(document.getElementById('u').value === db.adminAuth.user && document.getElementById('p').value === db.adminAuth.pass) {
+                session.role = 'admin'; renderAdmin();
+            } else alert("Acceso docente denegado");
+        } else {
+            const c = document.getElementById('c').value;
+            const ced = document.getElementById('ced').value.trim();
+            const cod = document.getElementById('cod').value.trim();
+            const student = db.students[c].find(s => s.cedula === ced);
+
+            if(student && cod === db.classCodes[c]) {
+                session.role = 'student'; session.user = student; session.class = c;
+                renderStudent();
+            } else {
+                alert(`Error: Cédula no registrada o código de clase "${cod}" es incorrecto para ${c.toUpperCase()}`);
+            }
+        }
+    }
+
+    // --- PANEL ADMIN ---
+    function renderAdmin() {
+        const c = session.vClass || 'analisis'; session.vClass = c;
+        const students = db.students[c].filter(s =>
+            s.nombre.toLowerCase().includes(session.filter.toLowerCase()) || s.cedula.includes(session.filter)
+        );
+
+        document.getElementById('app').innerHTML = `
+            <div class="card" style="display:flex; justify-content:space-between; align-items:center">
+                <h2>Panel Docente: ${c.toUpperCase()}</h2>
+                <div>
+                    <button class="btn btn-success" onclick="exportExcel('${c}')">Exportar Excel</button>
+                    <button class="btn btn-danger" onclick="location.reload()">Cerrar</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📢 Nuevo Anuncio</h3>
+                <input type="text" id="at" placeholder="Título" style="width:100%; padding:8px">
+                <textarea id="ab" placeholder="Mensaje..." style="width:100%; margin-top:5px; height:60px"></textarea>
+                <button class="btn btn-primary" onclick="addAnn('${c}')">Publicar</button>
+            </div>
+
+            <div class="card">
+                <input type="text" class="search-bar" placeholder="🔍 Buscar por nombre o cédula entre los 200+ alumnos..."
+                    oninput="session.filter=this.value; renderAdmin()" value="${session.filter}">
+
+                <div style="margin-bottom:10px">
+                    Materia: <select onchange="session.vClass=this.value; renderAdmin()">
+                        ${Object.keys(db.classCodes).map(k => `<option value="${k}" ${c===k?'selected':''}>${k.toUpperCase()}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Cédula</th><th>Estudiante</th>
+                            ${db.assignments[c].map(t => `<th>${t.name}</th>`).join('')}
+                            <th>Borrar</th></tr>
+                        </thead>
+                        <tbody>
+                            ${students.map(s => `
+                                <tr>
+                                    <td>${s.cedula}</td>
+                                    <td style="text-align:left">${s.apellido}, ${s.nombre}</td>
+                                    ${db.assignments[c].map(t => `
+                                        <td><input type="number" value="${db.grades[c][s.cedula]?.[t.id] || ''}"
+                                            onchange="setG('${c}','${s.cedula}','${t.id}',this.value)" style="width:40px"></td>
+                                    `).join('')}
+                                    <td><button onclick="delS('${c}','${s.cedula}')">x</button></td>
+                                </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top:10px">
+                    <button class="btn btn-primary" onclick="addS('${c}')">+ Alumno</button>
+                    <button class="btn btn-primary" onclick="addT('${c}')">+ Tarea</button>
+                </div>
+            </div>`;
+    }
+
+    // --- PANEL ESTUDIANTE ---
+    function renderStudent() {
+        const { user, class: c } = session;
+        document.getElementById('app').innerHTML = `
+            <div class="card">
+                <h2>Bienvenido, ${user.nombre}</h2>
+                <button class="btn btn-danger" onclick="location.reload()">Salir</button>
+            </div>
+            <div class="card">
+                <h3>📢 Anuncios de la Materia</h3>
+                ${db.announcements[c].length ? db.announcements[c].map(a => `
+                    <div class="announcement"><b>${a.title}</b><p>${a.body}</p><small>${a.date}</small></div>
+                `).reverse().join('') : '<p>No hay anuncios.</p>'}
+            </div>
+            <div class="card">
+                <h3>Tus Calificaciones</h3>
+                <table>
+                    <thead><tr><th>Tarea</th><th>Nota</th></tr></thead>
+                    <tbody>
+                        ${db.assignments[c].map(t => `<tr><td>${t.name}</td><td><b>${db.grades[c][user.cedula]?.[t.id] || 'N/A'}</b></td></tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+
+    // --- LÓGICA DE DATOS ---
+    async function addAnn(c) {
+        const t = document.getElementById('at').value;
+        const b = document.getElementById('ab').value;
+        if(t && b) {
+            db.announcements[c].push({ title: t, body: b, date: new Date().toLocaleString() });
+            await sync(); renderAdmin();
+        }
+    }
+
+    async function setG(c, ced, tid, val) {
+        if(!db.grades[c][ced]) db.grades[c][ced] = {};
+        db.grades[c][ced][tid] = val;
+        await sync();
+    }
+
+    async function addS(c) {
+        const ced = prompt("Cédula:"), n = prompt("Nombre:"), a = prompt("Apellido:");
+        if(ced && n) { db.students[c].push({cedula:ced, nombre:n, apellido:a}); await sync(); renderAdmin(); }
+    }
+
+    async function addT(c) {
+        const n = prompt("Nombre de la tarea:");
+        if(n) { db.assignments[c].push({id:Date.now(), name:n}); await sync(); renderAdmin(); }
+    }
+
+    async function delS(c, ced) { if(confirm("¿Borrar?")) { db.students[c]=db.students[c].filter(s=>s.cedula!==ced); await sync(); renderAdmin(); } }
+
+    function exportExcel(c) {
+        const data = db.students[c].map(s => {
+            let row = { "Cédula": s.cedula, "Nombre": `${s.apellido}, ${s.nombre}` };
+            db.assignments[c].forEach(t => row[t.name] = db.grades[c][s.cedula]?.[t.id] || 0);
+            return row;
+        });
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Notas");
+        XLSX.writeFile(wb, `Notas_${c}.xlsx`);
+    }
+
+    init();
+</script>
+</body>
+</html>
