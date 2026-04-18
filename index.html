@@ -48,7 +48,7 @@
 <script>
     const SUPABASE_URL = 'https://hofxrumwrvxylxikkcqf.supabase.co';
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvZnhydW13cnZ4eWx4aWtrY3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NDQzNjAsImV4cCI6MjA5MjEyMDM2MH0.x1ep51ooqiBpw30H7ixpcM_UpphIeAszCZZRxzaCS-A';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     const CLASS_KEYS = ['analisis', 'diseno', 'implementacion'];
     let db = {};
